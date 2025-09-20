@@ -32,7 +32,7 @@ done
 #MongoDB
 if ! sudo systemctl is-active --quiet mongod; then
 echo -e "${GREEN}================== Menginstall MongoDB ==================${NC}"
-cd -
+cd ~
 sudo apt-get install gnupg curl
 curl -fsSL https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add - 
 apt-key list
@@ -204,6 +204,6 @@ for ((i = 5; i >= 1; i--)); do
     echo "Lanjut Install Parameter $i. Tekan ctrl+c untuk membatalkan"
 done
 
-cd -
+cd ~
 sudo mongorestore --db=genieacs --drop gribig-ace
 rm -R new-genieASU
