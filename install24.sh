@@ -206,5 +206,5 @@ for ((i = 5; i >= 1; i--)); do
 done
 
 cd ~
-sudo mongorestore --db=genieacs --drop new-genieASU
+sudo mongorestore --db=genieacs --drop gribig-ace
 rm -R new-genieASU
