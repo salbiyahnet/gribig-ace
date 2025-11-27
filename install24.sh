@@ -207,4 +207,4 @@ done
 
 cd ~
 sudo mongorestore --db=genieacs --drop gribig-ace
-rm -R new-genieASU
+rm -R gribig-ace
