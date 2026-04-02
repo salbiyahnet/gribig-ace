@@ -8,16 +8,16 @@ NC='\033[0m'
 clear
 
 if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Jalankan sebagai ROOT${NC}"
+  echo -e "${RED}Jalankan script sebagai ROOT${NC}"
   exit
 fi
 
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 
-echo -e "${GREEN}======================================${NC}"
-echo -e "${GREEN} GENIEACS INSTALLER v4 (SAFE MODE) ${NC}"
-echo -e "${GREEN} Ubuntu 20 / 22 / 24 Supported ${NC}"
-echo -e "${GREEN}======================================${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}      GENIEACS AUTO INSTALLER v6        ${NC}"
+echo -e "${GREEN}      Ubuntu 20 / 22 / 24 Support       ${NC}"
+echo -e "${GREEN}========================================${NC}"
 
 read -p "Mulai install? (y/n): " confirm
 [ "$confirm" != "y" ] && exit
@@ -28,13 +28,15 @@ echo -e "${GREEN}Update repository${NC}"
 apt update
 
 #################################################
-# Install dependencies
+# Dependencies
 #################################################
+
+echo -e "${GREEN}Install dependencies${NC}"
 
 apt install -y curl wget gnupg build-essential python3 make g++ net-tools
 
 #################################################
-# Install libssl1.1 (if needed)
+# Install libssl1.1 (MongoDB dependency)
 #################################################
 
 if dpkg -l | grep -q libssl1.1; then
@@ -44,21 +46,28 @@ else
 echo -e "${GREEN}Install libssl1.1 compatibility${NC}"
 
 ARCH=$(dpkg --print-architecture)
+cd /tmp
 
 if [ "$ARCH" = "amd64" ]; then
-wget -q http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u4_amd64.deb
-dpkg -i libssl1.1_1.1.1w-0+deb11u4_amd64.deb
-rm -f libssl1.1*.deb
+LIBSSL_URL="http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u5_amd64.deb"
 else
-wget -q http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u4_arm64.deb
-dpkg -i libssl1.1_1.1.1w-0+deb11u4_arm64.deb
-rm -f libssl1.1*.deb
+LIBSSL_URL="http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u5_arm64.deb"
+fi
+
+wget -q $LIBSSL_URL -O libssl1.1.deb
+
+if [ -f libssl1.1.deb ]; then
+dpkg -i libssl1.1.deb
+rm -f libssl1.1.deb
+else
+echo -e "${RED}Download libssl1.1 gagal${NC}"
+exit 1
 fi
 
 fi
 
 #################################################
-# MongoDB
+# Install MongoDB 4.4
 #################################################
 
 if command -v mongod >/dev/null; then
@@ -71,7 +80,7 @@ curl -fsSL https://www.mongodb.org/static/pgp/server-4.4.asc | \
 gpg --dearmor -o /usr/share/keyrings/mongodb-server-4.4.gpg
 
 echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-4.4.gpg ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" \
-> /etc/apt/sources.list.d/mongodb-org-4.4.list
+| tee /etc/apt/sources.list.d/mongodb-org-4.4.list
 
 apt update
 apt install -y mongodb-org
@@ -82,33 +91,43 @@ systemctl start mongod
 fi
 
 #################################################
-# NodeJS
+# Disable Transparent Huge Pages (MongoDB)
 #################################################
 
-NODE_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v')
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
 
-if [ -z "$NODE_MAJOR" ]; then
+#################################################
+# Install NodeJS
+#################################################
+
+if ! command -v node >/dev/null; then
 
 echo -e "${GREEN}Install NodeJS 20 LTS${NC}"
 
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 
-elif [ "$NODE_MAJOR" -lt 16 ]; then
+else
 
-echo -e "${YELLOW}NodeJS terlalu lama, upgrade${NC}"
+NODE_MAJOR=$(node -v | cut -d'.' -f1 | tr -d 'v')
+
+if [ "$NODE_MAJOR" -lt 16 ]; then
+
+echo -e "${YELLOW}Upgrade NodeJS${NC}"
 
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 
 else
 
-echo -e "${YELLOW}NodeJS sudah terinstall (v$NODE_MAJOR), skip${NC}"
+echo -e "${YELLOW}NodeJS sudah terinstall (v$NODE_MAJOR)${NC}"
+
+fi
 
 fi
 
 #################################################
-# GenieACS
+# Install GenieACS
 #################################################
 
 if command -v genieacs-cwmp >/dev/null; then
@@ -122,12 +141,10 @@ npm install -g genieacs@1.2.13
 fi
 
 #################################################
-# User & Directory
+# User
 #################################################
 
-if id "genieacs" &>/dev/null; then
-echo -e "${YELLOW}User genieacs sudah ada${NC}"
-else
+if ! id "genieacs" &>/dev/null; then
 useradd --system --no-create-home --user-group genieacs
 fi
 
@@ -138,7 +155,7 @@ chown -R genieacs:genieacs /opt/genieacs
 chown -R genieacs:genieacs /var/log/genieacs
 
 #################################################
-# Environment file
+# Environment
 #################################################
 
 if [ ! -f /opt/genieacs/genieacs.env ]; then
@@ -155,19 +172,15 @@ EOF
 
 chmod 600 /opt/genieacs/genieacs.env
 
-else
-echo -e "${YELLOW}Config genieacs.env sudah ada, skip${NC}"
 fi
 
 #################################################
-# Systemd Services
+# Create Services
 #################################################
 
 create_service () {
 
 SERVICE=$1
-
-if [ ! -f /etc/systemd/system/genieacs-$SERVICE.service ]; then
 
 cat <<EOF >/etc/systemd/system/genieacs-$SERVICE.service
 [Unit]
@@ -184,8 +197,6 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-fi
-
 }
 
 create_service cwmp
@@ -194,7 +205,7 @@ create_service fs
 create_service ui
 
 #################################################
-# Start Service
+# Start Services
 #################################################
 
 systemctl daemon-reload
@@ -203,10 +214,13 @@ systemctl restart genieacs-{cwmp,nbi,fs,ui}
 
 echo
 echo -e "${GREEN}================================${NC}"
-echo -e "${GREEN} GENIEACS INSTALL SELESAI ${NC}"
+echo -e "${GREEN} INSTALL GENIEACS SELESAI ${NC}"
 echo -e "${GREEN}================================${NC}"
 
 echo
 echo -e "GenieACS UI:"
 echo -e "${GREEN}http://$LOCAL_IP:3000${NC}"
+
 echo
+echo -e "CWMP URL:"
+echo -e "${GREEN}http://$LOCAL_IP:7547${NC}"
